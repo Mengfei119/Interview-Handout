@@ -1,7 +1,9 @@
 import mock_db
 import uuid
+import time
 from worker import worker_main
-from threading import Thread
+from threading import Thread, Lock
+cv= Lock()
 
 def lock_is_free():
     """
@@ -9,8 +11,10 @@ def lock_is_free():
 
         Return whether the lock is free
     """
-
-    return True
+    if cv.locked():
+        return False
+    else:
+        return True
 
 
 def attempt_run_worker(worker_hash, give_up_after, db, retry_interval):
@@ -27,9 +31,21 @@ def attempt_run_worker(worker_hash, give_up_after, db, retry_interval):
                             until the lock is free, unless we have been trying for more
                             than give_up_after seconds
     """
-    if lock_is_free():
-        worker_main(worker_hash, db)
-
+    count= 0
+    times= give_up_after/ retry_interval
+    while not lock_is_free():
+        time.sleep(retry_interval)
+        count= count+ 1
+        if count>= times:
+            break
+    if count<= times:
+        cv.acquire()
+        try:
+            worker_main(worker_hash, db)
+        except:
+            print('')
+        cv.release()
+    
 
 if __name__ == "__main__":
     """
