@@ -3,19 +3,30 @@ import uuid
 import time
 from worker import worker_main
 from threading import Thread, Lock
-cv= Lock()
-
 def lock_is_free():
     """
         CHANGE ME, POSSIBLY MY ARGS
 
         Return whether the lock is free
     """
-    if cv.locked():
-        return False
-    else:
+    return db.find_one({"_id":  "Lock"}) is None
+    
+def lock_acquire(worker_hash):
+    """
+       require the lock
+    """
+    try:
+        db.insert_one({"_id":  "Lock", "worker_hash": worker_hash})
         return True
-
+    except Exception:
+        return False
+        
+def lock_release():
+    """
+       release the lock
+    """
+    db.delete_one({"_id": "Lock"})
+    
 
 def attempt_run_worker(worker_hash, give_up_after, db, retry_interval):
     """
@@ -33,20 +44,24 @@ def attempt_run_worker(worker_hash, give_up_after, db, retry_interval):
     """
     count= 0
     times= give_up_after/ retry_interval
-    while not lock_is_free():
-        time.sleep(retry_interval)
-        count= count+ 1
-        if count>= times:
+    while count<= times:
+        while not lock_is_free():
+            time.sleep(retry_interval)
+            count= count+ 1
+            if count> times:
+                break
+        if lock_acquire(worker_hash):
+            try:
+                worker_main(worker_hash, db)
+            except:
+                print('Crashed')
+            finally:
+                lock_release()
             break
-    if count<= times:
-        cv.acquire()
-        try:
-            worker_main(worker_hash, db)
-        except:
-            print('')
-        cv.release()
+        else:
+            count= count+ 1
+            time.sleep(retry_interval)
     
-
 if __name__ == "__main__":
     """
         DO NOT MODIFY
